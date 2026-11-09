@@ -1,0 +1,31 @@
+import Link from "next/link";
+
+/** Top bar for the public pages. */
+export function Nav({ signedIn }: { signedIn: boolean }) {
+  return (
+    <nav className="site-nav glass">
+      <div className="wrap">
+        <Link href="/" className="brand">
+          <img src="/icon.svg" alt="" />
+          網頁集合器
+        </Link>
+        <span className="spacer" />
+        <a
+          className="text-btn"
+          href="https://github.com/YA-CIAO-LIANG/tab-archive"
+        >
+          GitHub
+        </a>
+        {signedIn ? (
+          <Link className="btn primary" href="/app">
+            進入典藏
+          </Link>
+        ) : (
+          <Link className="btn" href="/login">
+            登入
+          </Link>
+        )}
+      </div>
+    </nav>
+  );
+}

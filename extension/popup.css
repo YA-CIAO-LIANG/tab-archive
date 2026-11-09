@@ -1,0 +1,151 @@
+:root {
+  --ink: #1b2126;
+  --ink2: #4a545c;
+  --muted: #7d878e;
+  --line: rgba(27, 33, 38, 0.14);
+  --accent: #3b5566;
+  --danger: #8a3b33;
+}
+* {
+  box-sizing: border-box;
+}
+body {
+  margin: 0;
+  width: 320px;
+  padding: 20px;
+  background: linear-gradient(180deg, #f4f6f6, #e6ecee);
+  color: var(--ink);
+  font:
+    400 14px/1.6 -apple-system,
+    "PingFang TC",
+    "Noto Sans TC",
+    sans-serif;
+}
+header {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  padding-bottom: 14px;
+  border-bottom: 1px solid var(--line);
+  margin-bottom: 16px;
+}
+header img {
+  width: 36px;
+  height: 36px;
+}
+.eyebrow {
+  font: 500 10px/1 sans-serif;
+  letter-spacing: 0.28em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+h1 {
+  margin: 4px 0 0;
+  font:
+    500 18px "Noto Serif TC",
+    "Songti TC",
+    serif;
+  letter-spacing: 0.08em;
+}
+section {
+  display: grid;
+  gap: 12px;
+}
+.count {
+  margin: 0;
+  font:
+    300 26px/1.2 "Noto Serif TC",
+    "Songti TC",
+    serif;
+}
+.count small {
+  display: block;
+  font: 400 12px sans-serif;
+  letter-spacing: 0.12em;
+  color: var(--muted);
+}
+.check {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  color: var(--ink2);
+  cursor: pointer;
+  font-size: 13px;
+}
+input[type="checkbox"] {
+  accent-color: var(--ink);
+  width: 15px;
+  height: 15px;
+  margin: 0;
+}
+.btn {
+  border: 1px solid var(--ink);
+  background: var(--ink);
+  color: #f3f5f5;
+  border-radius: 2px;
+  padding: 10px 14px;
+  font: inherit;
+  letter-spacing: 0.08em;
+  cursor: pointer;
+}
+.btn:hover {
+  background: #2c353c;
+}
+.btn:disabled {
+  opacity: 0.5;
+  cursor: wait;
+}
+.msg {
+  margin: 0;
+  font-size: 13px;
+  color: var(--ink2);
+  min-height: 1em;
+}
+.msg.error {
+  color: var(--danger);
+}
+nav {
+  display: flex;
+  justify-content: space-between;
+  border-top: 1px solid var(--line);
+  padding-top: 10px;
+}
+nav a {
+  color: var(--ink2);
+  text-decoration: none;
+  font-size: 13px;
+  letter-spacing: 0.06em;
+}
+nav a:hover {
+  color: var(--ink);
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+.field {
+  display: grid;
+  gap: 4px;
+  font-size: 11px;
+  letter-spacing: 0.18em;
+  color: var(--muted);
+}
+.field input {
+  border: none;
+  border-bottom: 1px solid var(--line);
+  background: none;
+  outline: none;
+  padding: 6px 0;
+  font:
+    13px ui-monospace,
+    Menlo,
+    monospace;
+  color: var(--ink);
+  letter-spacing: 0;
+}
+.field input:focus {
+  border-bottom-color: var(--ink);
+}
+.hint {
+  margin: 0;
+  color: var(--ink2);
+  font-size: 13px;
+}
