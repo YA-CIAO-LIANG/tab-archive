@@ -2,7 +2,7 @@
 
 import type { User } from "firebase/auth";
 import { usePathname, useRouter } from "next/navigation";
-import { useEffect, type ReactNode } from "react";
+import { useEffect, useRef, type ReactNode } from "react";
 import { useUser } from "@/lib/useUser";
 
 /** Renders for a signed-in user; everyone else goes to the login page. */
@@ -10,8 +10,12 @@ export function RequireUser({ render }: { render: (user: User) => ReactNode }) {
   const user = useUser();
   const router = useRouter();
   const path = usePathname();
+  const wasSignedIn = useRef(false);
   useEffect(() => {
-    if (user === null) {
+    if (user) wasSignedIn.current = true;
+    // Signing out (or deleting the account) here goes home, not to login.
+    if (user === null && wasSignedIn.current) router.replace("/");
+    else if (user === null) {
       const next = path + window.location.search;
       router.replace(`/login?next=${encodeURIComponent(next)}`);
     }

@@ -14,6 +14,7 @@ const COLOR_NAMES = {
   cyan: "青",
   orange: "橘",
 };
+const DEFAULT_SITE = "https://tab-archive.vercel.app";
 let settings = {};
 
 const origin = (value) => {
@@ -48,6 +49,7 @@ function show(which) {
 
 async function init() {
   settings = await chrome.storage.local.get(["site", "close", "onlyWindow"]);
+  settings.site = settings.site || DEFAULT_SITE;
   $("site").value = settings.site || "";
   $("close").checked = !!settings.close;
   $("onlyWindow").checked = !!settings.onlyWindow;

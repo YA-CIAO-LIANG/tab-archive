@@ -2,6 +2,8 @@
 
 把瀏覽器開著的分頁收進一座安靜的雲端典藏館。分頁開太多，瀏覽器就卡：一鍵收藏、順手關掉，之後在電腦、手機、平板都找得到。
 
+**網站：https://tab-archive.vercel.app** （[先看展示](https://tab-archive.vercel.app/demo)，不用註冊）
+
 ![首頁](docs/screenshots/landing.jpg)
 
 ## 功能
@@ -54,7 +56,7 @@ Firebase 的網頁設定（公開值）寫在 `lib/firebase-config.ts`，不需�
 
 1. 到網站「帳號」頁下載擴充功能壓縮檔並解壓縮（或直接用本 repo 的 `extension/` 資料夾）。
 2. 開 `brave://extensions`（或 `chrome://extensions`），開啟「開發人員模式」→「載入未封裝項目」→ 選資料夾。
-3. 點擴充功能圖示，貼上網站網址（第一次就好）。快捷鍵：`Alt+Shift+S`。
+3. 點擴充功能圖示，按「收藏所有分頁」（預設存到 https://tab-archive.vercel.app ）。快捷鍵：`Alt+Shift+S`。
 
 ## 隱私
 
