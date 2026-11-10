@@ -45,3 +45,7 @@ Supabase 免費方案最多 2 個專案，Joe 已用滿；Joe 選擇改用 Googl
 ## D10 · 2026-11-09 · 不用安裝也能匯入分頁
 
 Joe：操作太複雜，不要讓使用者安裝東西。網頁本身讀不到分頁（瀏覽器安全限制），所以主要流程改成瀏覽器內建的「將所有分頁加入書籤」（⌘⇧D）→ 書籤管理員全選複製 → 在典藏頁貼上。典藏頁任何地方貼上多個網址都會開匯入視窗；也接受書籤匯出檔（資料夾變展區）。擴充功能保留為選用（帳號頁收合）。看 `lib/import-text.ts`、`components/ImportDialog.tsx`。
+
+## D11 · 2026-11-09 · 各裝置的動畫教學
+
+Joe：要有手機版和 Mac、Windows 版的指引動畫。`components/ImportGuide.tsx` 用 HTML／CSS 畫出示意場景（不用影片或 GIF，檔案小、隨主題縮放），依 User-Agent 自動選 Mac、Windows、iPhone/iPad、Android，可手動切換；步驟自動播放，`prefers-reduced-motion` 時停在最後畫面。出現在首頁「如何使用」與匯入視窗。手機版另有「貼上剪貼簿」按鈕。iPhone（Safari「拷貝連結」）與 Android（Chrome「選取分頁 → 分享 → 複製」）的步驟沒有在實機上驗證。

@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { Icon } from "@/components/Icons";
+import { ImportGuide } from "@/components/ImportGuide";
 import { Nav } from "@/components/Nav";
 
 const FEATURES = [
@@ -117,6 +118,9 @@ export default function Home() {
               </div>
             </li>
           </ol>
+          <div className="how-guide glass">
+            <ImportGuide />
+          </div>
         </section>
 
         <footer className="footer">

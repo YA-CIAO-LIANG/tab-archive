@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { IncomingTab } from "@/lib/capture";
 import { parseLinks } from "@/lib/import-text";
+import { ImportGuide } from "./ImportGuide";
 
 export type Pasted = { text: string; html: string };
 
@@ -32,22 +33,36 @@ export function ImportDialog({
   );
   const [room, setRoom] = useState(defaultRoom);
   const [busy, setBusy] = useState(false);
-  const [mac, setMac] = useState(true);
-  const [touch, setTouch] = useState(false);
+  const [note, setNote] = useState("");
   const tabs = useMemo(() => parseLinks(pasted.text, pasted.html), [pasted]);
   const foldered = tabs.some((t) => t.group);
 
   useEffect(() => {
     ref.current?.showModal();
-    // eslint-disable-next-line react-hooks/set-state-in-effect
-    setMac(/Mac/.test(navigator.userAgent));
-    setTouch(matchMedia("(hover: none)").matches);
   }, []);
 
-  const k = (macKeys: string, winKeys: string) =>
-    (mac ? macKeys : winKeys)
-      .split(" ")
-      .map((key) => <kbd key={key}>{key}</kbd>);
+  /** One tap on phones: read the clipboard (asks permission once). */
+  async function pasteClipboard() {
+    setNote("");
+    try {
+      let text = "";
+      let html = "";
+      if (navigator.clipboard.read) {
+        for (const item of await navigator.clipboard.read()) {
+          if (item.types.includes("text/html"))
+            html = await (await item.getType("text/html")).text();
+          if (item.types.includes("text/plain"))
+            text = await (await item.getType("text/plain")).text();
+        }
+      } else {
+        text = await navigator.clipboard.readText();
+      }
+      setPasted({ text, html });
+      if (!parseLinks(text, html).length) setNote("剪貼簿裡沒有網址");
+    } catch {
+      setNote("無法讀取剪貼簿，請在框內長按並選「貼上」");
+    }
+  }
 
   async function readFile(file: File) {
     const text = await file.text();
@@ -89,30 +104,7 @@ export function ImportDialog({
           </button>
         </div>
 
-        {touch ? (
-          <p className="import-hint">
-            把網址貼在下面，一行一個。電腦上可以一次匯入所有分頁。
-          </p>
-        ) : (
-          <>
-            <ol className="import-steps">
-              <li>
-                按 {k("⌘ ⇧ D", "Ctrl Shift D")}
-                ，瀏覽器會把所有分頁存成一個書籤資料夾，按「儲存」。
-              </li>
-              <li>
-                按 {k("⌘ ⌥ B", "Ctrl Shift O")}
-                打開書籤管理員，點進剛剛的資料夾，按 {k("⌘ A", "Ctrl A")}
-                全選、{k("⌘ C", "Ctrl C")}複製。
-              </li>
-              <li>回到這裡，在下面的框按 {k("⌘ V", "Ctrl V")} 貼上。</li>
-            </ol>
-            <p className="import-hint">
-              Safari：在側邊欄的分頁群組上按右鍵
-              →「拷貝連結」。手機上可以直接貼上網址，一行一個。
-            </p>
-          </>
-        )}
+        <ImportGuide compact />
 
         <textarea
           className="import-box"
@@ -131,10 +123,13 @@ export function ImportDialog({
         />
 
         <div className="import-meta">
+          <button type="button" className="btn" onClick={pasteClipboard}>
+            貼上剪貼簿
+          </button>
           <span className="import-count">
             {tabs.length
               ? `找到 ${tabs.length} 個網址${foldered ? "，資料夾會變成展區" : ""}`
-              : "還沒有網址"}
+              : note || "還沒有網址"}
           </span>
           <label className="text-btn">
             或選擇書籤匯出檔（.html）
