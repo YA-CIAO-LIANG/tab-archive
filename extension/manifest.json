@@ -2,7 +2,7 @@
   "manifest_version": 3,
   "name": "網頁集合器 Tab Archive",
   "short_name": "網頁集合器",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "description": "一鍵把所有分頁收進網頁集合器，分頁群組自動變成展區。",
   "action": {
     "default_popup": "popup.html",

@@ -2,9 +2,15 @@
 
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import type { SupabaseClient } from "@supabase/supabase-js";
 import { Icon } from "@/components/Icons";
-import { loadBrowserSupabase } from "@/lib/supabase/browser";
+import { firebase } from "@/lib/firebase";
+import {
+  firestoreStore,
+  memoryStore,
+  type Op,
+  type Snapshot,
+  type Store,
+} from "@/lib/store";
 import {
   hostOf,
   VIEW_MODES,
@@ -34,9 +40,6 @@ const COLORS: Record<GroupColor, string> = {
   cyan: "#6aa2ad",
   orange: "#c4925f",
 };
-const LINK_COLUMNS =
-  "id, group_id, url, title, note, tags, description, image, icon, meta_fetched_at, position, created_at";
-const GROUP_COLUMNS = "id, name, color, position, collapsed";
 const INBOX = "收件匣";
 
 type Room = {
@@ -52,23 +55,7 @@ type Undo = {
   run: () => Promise<void>;
   snapshot: { groups: Group[]; links: Exhibit[] };
 };
-export type DemoData = { groups: Group[]; links: Exhibit[] };
-
-/**
- * A stand-in for Supabase on the demo page: every query chain resolves to
- * an empty success, so changes stay in the page.
- */
-function offlineClient(): SupabaseClient {
-  const chain: unknown = new Proxy(() => {}, {
-    get: (_, key) =>
-      key === "then"
-        ? (resolve: (v: unknown) => void) =>
-            resolve({ data: null, error: null })
-        : chain,
-    apply: () => chain,
-  });
-  return chain as SupabaseClient;
-}
+export type DemoData = Snapshot;
 
 const pad = (n: number) => String(n).padStart(2, "0");
 const pref = (key: string, value?: string) => {
@@ -144,7 +131,15 @@ function Cover({ link }: { link: Exhibit }) {
   );
 }
 
-export function Archive({ email, demo }: { email: string; demo?: DemoData }) {
+export function Archive({
+  email,
+  uid,
+  demo,
+}: {
+  email: string;
+  uid?: string;
+  demo?: DemoData;
+}) {
   const [groups, setGroups] = useState<Group[]>([]);
   const [links, setLinks] = useState<Exhibit[]>([]);
   const [loaded, setLoaded] = useState(false);
@@ -164,12 +159,17 @@ export function Archive({ email, demo }: { email: string; demo?: DemoData }) {
   const searchRef = useRef<HTMLInputElement>(null);
   const toastTimer = useRef<ReturnType<typeof setTimeout>>(undefined);
 
-  const db = useCallback(async (): Promise<SupabaseClient> => {
-    if (demo) return offlineClient();
-    const supabase = await loadBrowserSupabase();
-    if (!supabase) throw new Error("not configured");
-    return supabase;
-  }, [demo]);
+  const store = useMemo<Store | null>(() => {
+    if (demo) return memoryStore(demo);
+    const fb = firebase();
+    return fb && uid ? firestoreStore(fb.db, uid) : null;
+  }, [demo, uid]);
+  const write = useCallback(
+    async (ops: Op[]) => {
+      if (!demo && ops.length) await store?.write(ops);
+    },
+    [store, demo],
+  );
 
   const say = useCallback((text: string, undo = false) => {
     setToast({ text, undo });
@@ -178,54 +178,23 @@ export function Archive({ email, demo }: { email: string; demo?: DemoData }) {
   }, []);
 
   // ------------------------------------------------------------ loading
-  const load = useCallback(async () => {
-    if (demo) {
-      setGroups(demo.groups);
-      setLinks(demo.links);
-      setLoaded(true);
-      return;
-    }
-    try {
-      const supabase = await db();
-      const [{ data: g, error: ge }, all] = await Promise.all([
-        supabase.from("groups").select(GROUP_COLUMNS).order("position"),
-        (async () => {
-          const rows: Exhibit[] = [];
-          for (let from = 0; ; from += 1000) {
-            const { data, error } = await supabase
-              .from("links")
-              .select(LINK_COLUMNS)
-              .order("position")
-              .order("created_at")
-              .range(from, from + 999);
-            if (error) throw error;
-            rows.push(...(data as Exhibit[]));
-            if (data.length < 1000) return rows;
-          }
-        })(),
-      ]);
-      if (ge) throw ge;
-      setGroups(g as Group[]);
-      setLinks(all);
-      setLoaded(true);
-    } catch {
-      say("讀取失敗，請重新整理頁面。");
-    }
-  }, [db, say, demo]);
-
   useEffect(() => {
-    // Initial load of remote data, then again whenever the page comes back
-    // into view (e.g. after capturing with the extension).
-    // eslint-disable-next-line react-hooks/set-state-in-effect
-    load();
+    // Live: captures from the extension or other devices show up by
+    // themselves.
+    const stop = store?.subscribe(
+      (data) => {
+        setGroups(data.groups);
+        setLinks(data.links);
+        setLoaded(true);
+      },
+      () => say("讀取失敗，請重新整理頁面。"),
+    );
     const saved = pref("view") as ViewMode | null;
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     if (saved && VIEW_MODES.includes(saved)) setView(saved);
     setStill(pref("still") === "1");
-    const onVisible = () =>
-      !demo && document.visibilityState === "visible" && load();
-    document.addEventListener("visibilitychange", onVisible);
-    return () => document.removeEventListener("visibilitychange", onVisible);
-  }, [load, demo]);
+    return stop;
+  }, [store, say]);
 
   useEffect(() => {
     document.documentElement.classList.toggle("still", still);
@@ -240,8 +209,10 @@ export function Archive({ email, demo }: { email: string; demo?: DemoData }) {
         meta_fetched_at: new Date().toISOString(),
       };
       try {
+        const token = await firebase()?.auth.currentUser?.getIdToken();
         const res = await fetch(
           `/api/meta?url=${encodeURIComponent(link.url)}`,
+          { headers: { authorization: `Bearer ${token ?? ""}` } },
         );
         if (res.ok) {
           const meta = (await res.json()) as {
@@ -262,17 +233,19 @@ export function Archive({ email, demo }: { email: string; demo?: DemoData }) {
       setLinks((ls) =>
         ls.map((l) => (l.id === link.id ? { ...l, ...patch } : l)),
       );
-      await (await db()).from("links").update(patch).eq("id", link.id);
+      await write([{ type: "update", col: "links", id: link.id, patch }]).catch(
+        () => {},
+      );
       enriching.current.delete(link.id);
     },
-    [db],
+    [write],
   );
 
   useEffect(() => {
     const pending = links.filter(
       (l) => !l.meta_fetched_at && !enriching.current.has(l.id),
     );
-    if (!pending.length) return;
+    if (demo || !pending.length) return;
     let cancelled = false;
     (async () => {
       // Three at a time, so a big capture doesn't flood the network.
@@ -283,7 +256,7 @@ export function Archive({ email, demo }: { email: string; demo?: DemoData }) {
     return () => {
       cancelled = true;
     };
-  }, [links, enrich]);
+  }, [links, enrich, demo]);
 
   // ------------------------------------------------------------ rooms
   const words = useMemo(
@@ -340,13 +313,15 @@ export function Archive({ email, demo }: { email: string; demo?: DemoData }) {
     undoStack.current.push({ label, run, snapshot: { groups, links } });
     if (undoStack.current.length > 30) undoStack.current.shift();
   };
-  const guard = async (work: () => PromiseLike<{ error: unknown }>) => {
-    const { error } = await work();
-    if (error) {
-      say("沒有存成功，已重新讀取。");
-      load();
+  const guard = async (ops: Op[]) => {
+    try {
+      await write(ops);
+    } catch {
+      say("沒有存成功，請重新整理頁面。");
     }
   };
+  const linkOps = (ids: string[], patch: Partial<Exhibit>): Op[] =>
+    ids.map((id) => ({ type: "update", col: "links", id, patch }));
 
   async function undo() {
     const step = undoStack.current.pop();
@@ -356,7 +331,6 @@ export function Archive({ email, demo }: { email: string; demo?: DemoData }) {
       setLinks(step.snapshot.links);
     } else {
       await step.run();
-      await load();
     }
     say(`已復原：${step.label}`);
   }
@@ -365,10 +339,10 @@ export function Archive({ email, demo }: { email: string; demo?: DemoData }) {
     const rows = links.filter((l) => ids.includes(l.id));
     setLinks((ls) => ls.filter((l) => !ids.includes(l.id)));
     setSelected(new Set());
-    remember("刪除", async () => {
-      await (await db()).from("links").insert(rows);
-    });
-    await guard(async () => (await db()).from("links").delete().in("id", ids));
+    remember("刪除", () =>
+      write(rows.map((doc) => ({ type: "set", col: "links", doc }))),
+    );
+    await guard(ids.map((id) => ({ type: "delete", col: "links", id })));
     say(
       rows.length === 1
         ? `已刪除「${rows[0].title.slice(0, 30)}」`
@@ -385,17 +359,10 @@ export function Archive({ email, demo }: { email: string; demo?: DemoData }) {
       ls.map((l) => (ids.includes(l.id) ? { ...l, group_id: groupId } : l)),
     );
     setSelected(new Set());
-    remember("移動", async () => {
-      const supabase = await db();
-      await Promise.all(
-        before.map(([id, g]) =>
-          supabase.from("links").update({ group_id: g }).eq("id", id),
-        ),
-      );
-    });
-    await guard(async () =>
-      (await db()).from("links").update({ group_id: groupId }).in("id", ids),
+    remember("移動", () =>
+      write(before.flatMap(([id, g]) => linkOps([id], { group_id: g }))),
     );
+    await guard(linkOps(ids, { group_id: groupId }));
     say(
       `已移動 ${ids.length} 個連結到「${groups.find((g) => g.id === groupId)?.name ?? ""}」`,
       true,
@@ -410,40 +377,27 @@ export function Archive({ email, demo }: { email: string; demo?: DemoData }) {
     );
     setLinks((ls) => ls.map((l) => (l.id === id ? { ...l, ...patch } : l)));
     setEditing(null);
-    remember("編輯", async () => {
-      await (await db()).from("links").update(back).eq("id", id);
-    });
-    await guard(async () =>
-      (await db()).from("links").update(patch).eq("id", id),
-    );
+    remember("編輯", () => write(linkOps([id], back)));
+    await guard(linkOps([id], patch));
   }
 
   async function createGroup(name: string): Promise<Group | null> {
     const position = Math.min(0, ...groups.map((g) => g.position)) - 1;
-    if (demo) {
-      const group: Group = {
-        id: crypto.randomUUID(),
-        name,
-        color: "none",
-        position,
-        collapsed: false,
-      };
-      setGroups((gs) => [group, ...gs]);
-      return group;
-    }
-    const { data, error } = await (
-      await db()
-    )
-      .from("groups")
-      .insert({ name: name.slice(0, 120), position })
-      .select(GROUP_COLUMNS)
-      .single();
-    if (error) {
+    const group: Group = {
+      id: crypto.randomUUID().replace(/-/g, ""),
+      name: name.slice(0, 120),
+      color: "none",
+      position,
+      collapsed: false,
+    };
+    try {
+      await write([{ type: "set", col: "groups", doc: group }]);
+    } catch {
       say("建立展區失敗");
       return null;
     }
-    setGroups((gs) => [data as Group, ...gs]);
-    return data as Group;
+    setGroups((gs) => [group, ...gs]);
+    return group;
   }
 
   async function updateGroup(
@@ -458,13 +412,11 @@ export function Archive({ email, demo }: { email: string; demo?: DemoData }) {
       const back = Object.fromEntries(
         Object.keys(patch).map((k) => [k, old[k as keyof Group]]),
       );
-      remember(label, async () => {
-        await (await db()).from("groups").update(back).eq("id", id);
-      });
+      remember(label, () =>
+        write([{ type: "update", col: "groups", id, patch: back }]),
+      );
     }
-    await guard(async () =>
-      (await db()).from("groups").update(patch).eq("id", id),
-    );
+    await guard([{ type: "update", col: "groups", id, patch }]);
   }
 
   async function moveGroupUp(id: string) {
@@ -474,11 +426,13 @@ export function Archive({ email, demo }: { email: string; demo?: DemoData }) {
     [ordered[i - 1], ordered[i]] = [ordered[i], ordered[i - 1]];
     const renumbered = ordered.map((g, n) => ({ ...g, position: n }));
     setGroups(renumbered);
-    const supabase = await db();
-    await Promise.all(
-      renumbered.map((g) =>
-        supabase.from("groups").update({ position: g.position }).eq("id", g.id),
-      ),
+    await guard(
+      renumbered.map((g) => ({
+        type: "update",
+        col: "groups",
+        id: g.id,
+        patch: { position: g.position },
+      })),
     );
   }
 
@@ -495,15 +449,16 @@ export function Archive({ email, demo }: { email: string; demo?: DemoData }) {
       return;
     setGroups((gs) => gs.filter((g) => g.id !== group.id));
     setLinks((ls) => ls.filter((l) => l.group_id !== group.id));
-    remember("刪除展區", async () => {
-      const supabase = await db();
-      await supabase.from("groups").insert(group);
-      if (inside.length) await supabase.from("links").insert(inside);
-    });
-    const supabase = await db();
-    if (inside.length)
-      await supabase.from("links").delete().eq("group_id", group.id);
-    await guard(() => supabase.from("groups").delete().eq("id", group.id));
+    remember("刪除展區", () =>
+      write([
+        { type: "set", col: "groups", doc: group },
+        ...inside.map((doc): Op => ({ type: "set", col: "links", doc })),
+      ]),
+    );
+    await guard([
+      ...inside.map((l): Op => ({ type: "delete", col: "links", id: l.id })),
+      { type: "delete", col: "groups", id: group.id },
+    ]);
     say(`已刪除展區「${group.name}」`, true);
   }
 
@@ -519,42 +474,32 @@ export function Archive({ email, demo }: { email: string; demo?: DemoData }) {
     if (links.some((l) => l.url === url)) return say("這個連結已經收藏過了");
     const inbox =
       groups.find((g) => g.name === INBOX) ?? (await createGroup(INBOX));
-    if (demo) {
-      const now = new Date().toISOString();
-      setLinks((ls) => [
-        ...ls,
-        {
-          id: crypto.randomUUID(),
-          group_id: inbox?.id ?? null,
-          url,
-          title: url,
-          note: "",
-          tags: [],
-          description: "",
-          image: null,
-          icon: null,
-          meta_fetched_at: now,
-          position: Date.now(),
-          created_at: now,
-        },
-      ]);
-      return say("已加入收件匣（展示模式不會儲存，也不抓取網頁介紹）");
+    const now = new Date().toISOString();
+    const link: Exhibit = {
+      id: crypto.randomUUID().replace(/-/g, ""),
+      group_id: inbox?.id ?? null,
+      url,
+      title: url,
+      note: "",
+      tags: [],
+      description: "",
+      image: null,
+      icon: null,
+      meta_fetched_at: demo ? now : null,
+      position: Date.now() / 1000,
+      created_at: now,
+    };
+    try {
+      await write([{ type: "set", col: "links", doc: link }]);
+    } catch {
+      return say("新增失敗");
     }
-    const { data, error } = await (
-      await db()
-    )
-      .from("links")
-      .insert({
-        url,
-        title: url,
-        group_id: inbox?.id ?? null,
-        position: Date.now() / 1000,
-      })
-      .select(LINK_COLUMNS)
-      .single();
-    if (error) return say("新增失敗");
-    setLinks((ls) => [...ls, data as Exhibit]);
-    say("已加入收件匣，正在抓取網頁介紹…");
+    setLinks((ls) => [...ls, link]);
+    say(
+      demo
+        ? "已加入收件匣（展示模式不會儲存，也不抓取網頁介紹）"
+        : "已加入收件匣，正在抓取網頁介紹…",
+    );
   }
 
   function openAll(urls: string[]) {

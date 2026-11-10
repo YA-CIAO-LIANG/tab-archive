@@ -1,7 +1,11 @@
+"use client";
+
 import Link from "next/link";
+import { useUser } from "@/lib/useUser";
 
 /** Top bar for the public pages. */
-export function Nav({ signedIn }: { signedIn: boolean }) {
+export function Nav() {
+  const signedIn = !!useUser();
   return (
     <nav className="site-nav glass">
       <div className="wrap">

@@ -30,4 +30,14 @@ NOAA 藍鯨圖版（公有領域），在瀏覽器 canvas 轉成透明 PNG（依
 
 ## D8 · 2026-11-09 · 展示頁
 
-`/demo` 用同一個元件、公開網站的範例資料，變更只存在頁面裡（離線用的假 Supabase client）。
+`/demo` 用同一個元件、公開網站的範例資料，變更只存在頁面裡（`memoryStore`）。
+
+## D9 · 2026-11-09 · 改用 Firebase（取代 D1 的 Supabase、D3 的收藏金鑰）
+
+Supabase 免費方案最多 2 個專案，Joe 已用滿；Joe 選擇改用 Google 的 Firebase。Firebase 免費方案沒有專案數量限制，也不會因為沒人用而暫停；Google 登入一鍵開啟。
+
+- 資料：Firestore `users/{uid}/groups`、`users/{uid}/links`，規則見 `firestore.rules`。頁面用即時訂閱，其他裝置的變更自動出現。看 `lib/store.ts`。
+- 登入：全在瀏覽器（`lib/useUser.ts`、`components/RequireUser.tsx`），沒有伺服器 session；重設密碼用 Firebase 內建頁面。
+- 擴充功能不再用金鑰：分頁清單放在 `/app/capture#tabs=…`，由已登入的網頁寫入（`lib/capture.ts`）。Android 分享也走同一頁。
+- `/api/meta` 用 `jose` 驗證 Firebase ID token，不需要服務帳號金鑰。
+- 網站仍放在 Vercel；Firebase Hosting 跑 Next.js 需要付費方案。

@@ -1,5 +1,7 @@
-// Tab Archive extension: sends the open tabs (with their tab groups) to the
-// site's /api/capture, signed with the account's capture token.
+// Tab Archive extension: hands the open tabs (with their tab groups) to the
+// site's /app/capture page in the URL fragment. The page saves them to the
+// account signed in there, so the extension needs no key, and the fragment
+// never reaches a server.
 const $ = (id) => document.getElementById(id);
 const COLOR_NAMES = {
   grey: "灰",
@@ -45,29 +47,20 @@ function show(which) {
 }
 
 async function init() {
-  settings = await chrome.storage.local.get([
-    "site",
-    "token",
-    "close",
-    "onlyWindow",
-  ]);
+  settings = await chrome.storage.local.get(["site", "close", "onlyWindow"]);
   $("site").value = settings.site || "";
-  $("token").value = settings.token || "";
   $("close").checked = !!settings.close;
   $("onlyWindow").checked = !!settings.onlyWindow;
-  if (!settings.site || !settings.token) return show("setup");
+  if (!settings.site) return show("setup");
   show("main");
   refreshCount();
 }
 
 $("save").addEventListener("click", async () => {
   const site = origin($("site").value);
-  const token = $("token").value.trim();
   if (!site)
     return ($("setupMsg").textContent = "網站網址需要是 https:// 開頭");
-  if (!token.startsWith("tab_"))
-    return ($("setupMsg").textContent = "收藏金鑰應該以 tab_ 開頭");
-  await chrome.storage.local.set({ site, token });
+  await chrome.storage.local.set({ site });
   init();
 });
 $("settings").addEventListener("click", (e) => {
@@ -112,38 +105,28 @@ $("capture").addEventListener("click", async () => {
     const now = new Date();
     const p = (n) => String(n).padStart(2, "0");
     const inbox = `收件匣 ${p(now.getMonth() + 1)}/${p(now.getDate())} ${p(now.getHours())}:${p(now.getMinutes())}`;
-    const body = {
+    const payload = {
       inbox,
       tabs: tabs.map((t) => ({
         url: t.url,
-        title: t.title || "",
-        icon: (t.favIconUrl || "").startsWith("https://") ? t.favIconUrl : "",
+        title: (t.title || "").slice(0, 300),
+        icon: (t.favIconUrl || "").startsWith("https://")
+          ? t.favIconUrl.slice(0, 500)
+          : "",
         group: groups[t.groupId]?.title || "",
         color: groups[t.groupId]?.color || "",
       })),
     };
-    const res = await fetch(`${settings.site}/api/capture`, {
-      method: "POST",
-      headers: {
-        "content-type": "application/json",
-        authorization: `Bearer ${settings.token}`,
-      },
-      body: JSON.stringify(body),
-    });
-    const data = await res.json().catch(() => ({}));
-    if (res.status === 401)
-      throw new Error("收藏金鑰無效，請到網站「帳號」頁重新產生。");
-    if (!res.ok) throw new Error("網站暫時無法收藏，請稍後再試。");
-    msg.textContent = `新增 ${data.added} 個（${data.grouped} 個依分頁群組分類），重複略過 ${data.dup} 個。`;
-
+    const url = `${settings.site}/app/capture#tabs=${encodeURIComponent(JSON.stringify(payload))}`;
+    // Open the archive first so the window never ends up empty.
+    const opened = await chrome.tabs.create({ url });
     if ($("close").checked) {
-      // Open the archive first so the window never ends up empty.
-      await chrome.tabs.create({ url: `${settings.site}/app` });
-      const ids = tabs.filter((t) => !t.pinned).map((t) => t.id);
+      const ids = tabs
+        .filter((t) => !t.pinned && t.id !== opened.id)
+        .map((t) => t.id);
       if (ids.length) await chrome.tabs.remove(ids);
-    } else {
-      refreshCount();
     }
+    msg.textContent = `已送出 ${tabs.length} 個分頁。`;
   } catch (err) {
     msg.className = "msg error";
     msg.textContent = err.message || "收藏失敗";

@@ -1,5 +1,4 @@
 import Link from "next/link";
-import { getUser } from "@/auth/server";
 import { Icon } from "@/components/Icons";
 import { Nav } from "@/components/Nav";
 
@@ -32,15 +31,14 @@ const FEATURES = [
   {
     icon: "lock",
     title: "只屬於你",
-    text: "每個帳號的資料彼此隔離（資料庫列層級權限）。可隨時匯出，或刪除帳號與所有資料。",
+    text: "每個帳號的資料彼此隔離（資料庫安全規則）。可隨時匯出，或刪除帳號與所有資料。",
   },
 ];
 
-export default async function Home() {
-  const user = await getUser();
+export default function Home() {
   return (
     <>
-      <Nav signedIn={!!user} />
+      <Nav />
       <main className="wrap">
         <section className="hero">
           <div className="eyebrow">Tab Archive — 分頁典藏館</div>
@@ -53,8 +51,8 @@ export default async function Home() {
             分頁開太多，瀏覽器就卡。網頁集合器把開著的分頁收進一座安靜的典藏館：依分頁群組分類、附上網頁介紹與圖示、隨時搜尋，在電腦、手機、平板都找得到。
           </p>
           <div className="actions">
-            <Link className="btn primary large" href={user ? "/app" : "/login"}>
-              {user ? "進入我的典藏" : "免費開始使用"}
+            <Link className="btn primary large" href="/app">
+              免費開始使用
             </Link>
             <Link className="btn large" href="/demo">
               先看展示
@@ -98,7 +96,7 @@ export default async function Home() {
                 <b>安裝瀏覽器擴充功能</b>
                 <span>
                   支援 Brave、Chrome、Edge 等 Chromium
-                  瀏覽器。在「帳號」頁取得收藏金鑰，貼進擴充功能。
+                  瀏覽器。在「帳號」頁下載，載入一次就好，不用另外設定金鑰。
                 </span>
               </div>
             </li>

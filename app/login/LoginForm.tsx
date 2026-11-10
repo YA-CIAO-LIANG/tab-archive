@@ -1,97 +1,110 @@
 "use client";
 
-import { useState } from "react";
-import { loadBrowserSupabase } from "@/lib/supabase/browser";
+import { FirebaseError } from "firebase/app";
+import {
+  createUserWithEmailAndPassword,
+  GoogleAuthProvider,
+  sendPasswordResetEmail,
+  signInWithEmailAndPassword,
+  signInWithPopup,
+} from "firebase/auth";
+import { useRouter } from "next/navigation";
+import { useEffect, useState } from "react";
+import { firebase } from "@/lib/firebase";
 import { safeNextPath } from "@/lib/redirect";
+import { useUser } from "@/lib/useUser";
 
 type Mode = "signin" | "signup" | "forgot";
 
 const ERRORS: Record<string, string> = {
-  "Invalid login credentials": "Email 或密碼不正確。",
-  "Email not confirmed": "這個 Email 還沒驗證，請先點信中的確認連結。",
-  "User already registered": "這個 Email 已經註冊過，請直接登入。",
+  "auth/invalid-credential": "Email 或密碼不正確。",
+  "auth/wrong-password": "Email 或密碼不正確。",
+  "auth/user-not-found": "Email 或密碼不正確。",
+  "auth/invalid-email": "Email 格式不正確。",
+  "auth/email-already-in-use": "這個 Email 已經註冊過，請直接登入。",
+  "auth/weak-password": "密碼太簡單，請換一個。",
+  "auth/too-many-requests": "嘗試太多次了，請稍後再試。",
+  "auth/popup-blocked": "瀏覽器擋下了登入視窗，請允許彈出式視窗後再試。",
+  "auth/network-request-failed": "網路連線失敗，請稍後再試。",
+  "auth/unauthorized-domain": "這個網址還沒加入登入服務的允許清單。",
+  "auth/operation-not-allowed": "這種登入方式還沒啟用。",
 };
+const QUIET = new Set([
+  "auth/popup-closed-by-user",
+  "auth/cancelled-popup-request",
+]);
 
-export function LoginForm({ failed, next }: { failed: boolean; next: string }) {
+export function LoginForm({ next }: { next: string }) {
+  const router = useRouter();
+  const user = useUser();
   const [mode, setMode] = useState<Mode>("signin");
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState<{
     text: string;
     error?: boolean;
-  } | null>(
-    failed ? { text: "登入沒有完成，請再試一次。", error: true } : null,
-  );
+  } | null>(null);
 
-  const callback = () => {
-    const url = new URL("/auth/callback", window.location.origin);
-    url.searchParams.set("next", safeNextPath(next));
-    return url.href;
+  useEffect(() => {
+    if (user) router.replace(safeNextPath(next));
+  }, [user, next, router]);
+
+  const fail = (err: unknown) => {
+    setBusy(false);
+    const code = err instanceof FirebaseError ? err.code : "";
+    if (QUIET.has(code)) return;
+    setMessage({
+      text: ERRORS[code] ?? "登入沒有完成，請再試一次。",
+      error: true,
+    });
   };
 
   async function google() {
+    const fb = firebase();
+    if (!fb) return setMessage({ text: "網站尚未設定登入服務。", error: true });
     setBusy(true);
-    const supabase = await loadBrowserSupabase();
-    if (!supabase)
-      return setMessage({ text: "網站尚未設定登入服務。", error: true });
-    const { error } = await supabase.auth.signInWithOAuth({
-      provider: "google",
-      options: { redirectTo: callback() },
-    });
-    if (error) {
-      setBusy(false);
-      setMessage({ text: "無法開始 Google 登入，請稍後再試。", error: true });
+    setMessage(null);
+    try {
+      await signInWithPopup(fb.auth, new GoogleAuthProvider());
+    } catch (err) {
+      fail(err);
     }
   }
 
   async function submit(form: FormData) {
+    const fb = firebase();
+    if (!fb) return setMessage({ text: "網站尚未設定登入服務。", error: true });
     const email = String(form.get("email") ?? "")
       .trim()
       .toLowerCase();
     const password = String(form.get("password") ?? "");
     setBusy(true);
     setMessage(null);
-    const supabase = await loadBrowserSupabase();
-    if (!supabase) {
-      setBusy(false);
-      return setMessage({ text: "網站尚未設定登入服務。", error: true });
+    try {
+      if (mode === "forgot") {
+        await sendPasswordResetEmail(fb.auth, email).catch((err) => {
+          // Same answer whether or not the address has an account.
+          if (
+            err instanceof FirebaseError &&
+            err.code !== "auth/user-not-found"
+          )
+            throw err;
+        });
+        setBusy(false);
+        return setMessage({
+          text: "如果這個 Email 有註冊，重設密碼的信已經寄出。",
+        });
+      }
+      if (password.length < 8) {
+        setBusy(false);
+        return setMessage({ text: "密碼至少要 8 個字元。", error: true });
+      }
+      if (mode === "signup")
+        await createUserWithEmailAndPassword(fb.auth, email, password);
+      else await signInWithEmailAndPassword(fb.auth, email, password);
+      // The effect above moves on once Firebase reports the user.
+    } catch (err) {
+      fail(err);
     }
-    if (mode === "forgot") {
-      const redirectTo = new URL(
-        "/auth/callback?next=/login/reset",
-        window.location.origin,
-      ).href;
-      await supabase.auth.resetPasswordForEmail(email, { redirectTo });
-      setBusy(false);
-      // Same answer whether or not the address has an account.
-      return setMessage({
-        text: "如果這個 Email 有註冊，重設密碼的信已經寄出。",
-      });
-    }
-    if (password.length < 8) {
-      setBusy(false);
-      return setMessage({ text: "密碼至少要 8 個字元。", error: true });
-    }
-    const { data, error } =
-      mode === "signup"
-        ? await supabase.auth.signUp({
-            email,
-            password,
-            options: { emailRedirectTo: callback() },
-          })
-        : await supabase.auth.signInWithPassword({ email, password });
-    setBusy(false);
-    if (error) {
-      return setMessage({
-        text: ERRORS[error.message] ?? error.message,
-        error: true,
-      });
-    }
-    if (mode === "signup" && !data.session) {
-      return setMessage({
-        text: "註冊成功！請到信箱點確認連結，完成後就能登入。",
-      });
-    }
-    window.location.assign(safeNextPath(next));
   }
 
   return (

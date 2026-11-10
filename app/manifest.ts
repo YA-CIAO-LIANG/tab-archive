@@ -16,7 +16,7 @@ export default function manifest(): MetadataRoute.Manifest {
     ],
     // Android: "Share → 網頁集合器" adds the page to the archive.
     share_target: {
-      action: "/app/share",
+      action: "/app/capture",
       method: "GET",
       params: { title: "title", text: "text", url: "url" },
     },

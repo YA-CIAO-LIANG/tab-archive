@@ -7,5 +7,5 @@ out
 next-env.d.ts
 .vercel
 .DS_Store
-supabase/.temp
 extension.zip
+.firebase/

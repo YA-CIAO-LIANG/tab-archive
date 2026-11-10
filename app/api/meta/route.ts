@@ -1,8 +1,8 @@
 import { lookup } from "node:dns/promises";
 import { NextResponse, type NextRequest } from "next/server";
-import { getServerSupabase } from "@/auth/server";
 import { parseMeta } from "@/lib/meta";
 import { isPublicAddress } from "@/lib/ssrf";
+import { verifyIdToken } from "@/lib/verify-token";
 
 /**
  * Title, description, preview image and icon for a page, for the signed-in
@@ -61,9 +61,8 @@ async function readHead(res: Response): Promise<string> {
 }
 
 export async function GET(request: NextRequest) {
-  const supabase = await getServerSupabase();
-  const { data } = (await supabase?.auth.getUser()) ?? { data: { user: null } };
-  if (!data.user)
+  const bearer = request.headers.get("authorization")?.replace(/^Bearer /, "");
+  if (!(await verifyIdToken(bearer ?? null)))
     return NextResponse.json({ error: "sign_in" }, { status: 401 });
 
   let url = await safeUrl(request.nextUrl.searchParams.get("url") ?? "");

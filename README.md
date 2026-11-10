@@ -23,41 +23,42 @@
 
 ## 技術架構
 
-| 部分         | 技術                                                        |
-| ------------ | ----------------------------------------------------------- |
-| 網站         | Next.js 16（App Router）、React 19、TypeScript              |
-| 帳號與資料庫 | Supabase（Auth：Google、Email；PostgreSQL＋列層級權限 RLS） |
-| 部署         | Vercel                                                      |
-| 擴充功能     | Chrome Manifest V3（`extension/`）                          |
+| 部分         | 技術                                                         |
+| ------------ | ------------------------------------------------------------ |
+| 網站         | Next.js 16（App Router）、React 19、TypeScript               |
+| 帳號與資料庫 | Firebase（Auth：Google、Email；Firestore＋安全規則）免費方案 |
+| 部署         | Vercel 免費方案                                              |
+| 擴充功能     | Chrome Manifest V3（`extension/`）                           |
 
-擴充功能沒有網站的登入 cookie，所以用「收藏金鑰」：在帳號頁產生，資料庫只存它的 SHA-256 雜湊；`capture_tabs` 資料庫函式驗證金鑰後寫入（`supabase/migrations/`）。
+擴充功能不用金鑰：它把分頁清單放在網址的 `#` 後面，開啟網站的 `/app/capture`；網頁讀取後寫進你在網站登入的帳號。`#` 後面的內容不會傳到伺服器。
 
 ## 本機開發
 
 ```bash
-cp .env.example .env.local   # 填入 Supabase 的 URL 與 publishable key
 npm install
 npm run dev                  # http://localhost:3000，展示頁在 /demo
 ```
+
+Firebase 的網頁設定（公開值）寫在 `lib/firebase-config.ts`，不需要環境變數。
 
 檢查：`npm run lint && npm run format:check && npm run typecheck && npm test && npm run build`
 
 ## 自行架設
 
-1. 建立 Supabase 專案，執行 `supabase/migrations/` 裡的 SQL（或 `npx supabase@3.0.0 link` 後 `npm run db:push`）。
-2. Supabase → Authentication → Sign In / Providers：開啟 Email 與 Google（Google 需要 Google Cloud 的 OAuth 用戶端 ID／密鑰，授權重新導向 URI 填 `https://<ref>.supabase.co/auth/v1/callback`）。
-3. Supabase → Authentication → URL Configuration：Site URL 填網站網址，Redirect URLs 加上 `https://你的網址/**`。
-4. 在 Vercel 匯入此 repo，設定環境變數 `NEXT_PUBLIC_SUPABASE_URL`、`NEXT_PUBLIC_SUPABASE_ANON_KEY`。
+1. 在 [Firebase 主控台](https://console.firebase.google.com) 建立專案（免費 Spark 方案），新增一個網頁應用程式，把設定值填進 `lib/firebase-config.ts`。
+2. Authentication → 登入方式：開啟「電子郵件/密碼」與「Google」。設定 → 授權網域：加上你的網址。
+3. 建立 Firestore 資料庫，部署安全規則：`npx firebase-tools deploy --only firestore:rules --project <專案 ID>`。
+4. 在 Vercel 匯入此 repo，直接部署。
 
 ## 安裝擴充功能
 
 1. 到網站「帳號」頁下載擴充功能壓縮檔並解壓縮（或直接用本 repo 的 `extension/` 資料夾）。
 2. 開 `brave://extensions`（或 `chrome://extensions`），開啟「開發人員模式」→「載入未封裝項目」→ 選資料夾。
-3. 點擴充功能圖示，貼上網站網址與帳號頁產生的收藏金鑰。快捷鍵：`Alt+Shift+S`。
+3. 點擴充功能圖示，貼上網站網址（第一次就好）。快捷鍵：`Alt+Shift+S`。
 
 ## 隱私
 
-- 每個帳號只讀寫得到自己的資料（RLS）。
+- 每個帳號只讀寫得到自己的資料（`firestore.rules`）。
 - 「網頁介紹」由伺服器抓取該網頁的 `<head>`（只抓公開網址，擋內部網路位址）。
 - 沒有網站自帶圖示時，會向 Google 的 favicon 服務查詢該網域的圖示。
 

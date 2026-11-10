@@ -1,71 +1,54 @@
 "use client";
 
+import { deleteUser, signOut, type User } from "firebase/auth";
+import { FirebaseError } from "firebase/app";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
-import { loadBrowserSupabase } from "@/lib/supabase/browser";
+import { Nav } from "@/components/Nav";
+import { RequireUser } from "@/components/RequireUser";
+import { planCapture, type IncomingTab } from "@/lib/capture";
+import { firebase } from "@/lib/firebase";
+import { firestoreStore, type Op } from "@/lib/store";
 
-const date = (v: string | null) =>
-  v ? new Date(v).toLocaleString("zh-TW") : "—";
+type ImportGroup = { id?: string; name?: string; color?: string };
+type ImportLink = IncomingTab & { group?: string; group_id?: string };
 
-type ImportGroup = {
-  id?: string;
-  name?: string;
-  color?: string;
-  collapsed?: boolean;
-};
-type ImportLink = {
-  url?: string;
-  title?: string;
-  note?: string;
-  tags?: string[];
-  group?: string;
-  group_id?: string;
-  description?: string;
-};
+export function AccountView() {
+  return (
+    <RequireUser
+      render={(user) => (
+        <>
+          <Nav />
+          <main className="wrap">
+            <div className="stack">
+              <div>
+                <div className="eyebrow">Account</div>
+                <h1 className="display" style={{ fontSize: 40 }}>
+                  帳號
+                </h1>
+                <p className="lede">{user.email}</p>
+              </div>
+              <AccountTools user={user} />
+            </div>
+          </main>
+        </>
+      )}
+    />
+  );
+}
 
-export function AccountTools({
-  hasToken,
-  tokenCreated,
-  tokenUsed,
-}: {
-  hasToken: boolean;
-  tokenCreated: string | null;
-  tokenUsed: string | null;
-}) {
+function AccountTools({ user }: { user: User }) {
   const router = useRouter();
-  const [token, setToken] = useState<string | null>(null);
   const [message, setMessage] = useState<{
     text: string;
     error?: boolean;
   } | null>(null);
   const [busy, setBusy] = useState(false);
   const site = typeof window === "undefined" ? "" : window.location.origin;
-
-  async function newToken() {
-    if (hasToken && !confirm("產生新金鑰後，舊金鑰會立即失效。確定嗎？"))
-      return;
-    const supabase = await loadBrowserSupabase();
-    const { data, error } = (await supabase?.rpc("create_capture_token")) ?? {};
-    if (error || !data)
-      return setMessage({ text: "產生金鑰失敗", error: true });
-    setToken(data as string);
-  }
+  const store = () => firestoreStore(firebase()!.db, user.uid);
 
   async function exportData() {
-    const supabase = await loadBrowserSupabase();
-    if (!supabase) return;
-    const [{ data: groups }, { data: links }] = await Promise.all([
-      supabase
-        .from("groups")
-        .select("id, name, color, position, collapsed")
-        .order("position"),
-      supabase
-        .from("links")
-        .select(
-          "group_id, url, title, note, tags, description, image, icon, created_at",
-        )
-        .order("position"),
-    ]);
+    const { groups, links } = await store().read();
     const blob = new Blob(
       [JSON.stringify({ version: 1, groups, links }, null, 1)],
       { type: "application/json" },
@@ -87,83 +70,56 @@ export function AccountTools({
       };
       if (!Array.isArray(data.groups) || !Array.isArray(data.links))
         throw new Error("format");
-      const supabase = await loadBrowserSupabase();
-      if (!supabase) throw new Error("config");
-      const { data: existing } = await supabase
-        .from("groups")
-        .select("id, name");
-      const byName = new Map(
-        (existing ?? []).map((g) => [g.name as string, g.id as string]),
+      const rooms = new Map(
+        data.groups.map((g) => [g.id ?? "", { name: g.name, color: g.color }]),
       );
-      const idMap = new Map<string, string>();
-      let position = -Date.now() / 1000;
-      for (const g of data.groups) {
-        const name = String(g.name ?? "").slice(0, 120);
-        if (!name) continue;
-        let id = byName.get(name);
-        if (!id) {
-          const color =
-            /^(grey|blue|red|yellow|green|pink|purple|cyan|orange)$/.test(
-              g.color ?? "",
-            )
-              ? g.color
-              : "none";
-          const { data: row } = await supabase
-            .from("groups")
-            .insert({
-              name,
-              color,
-              position: position++,
-              collapsed: !!g.collapsed,
-            })
-            .select("id")
-            .single();
-          id = row?.id as string | undefined;
-          if (id) byName.set(name, id);
-        }
-        if (id && g.id) idMap.set(g.id, id);
-      }
-      const rows = data.links
-        .filter((l) => typeof l.url === "string" && /^https?:\/\//.test(l.url))
-        .map((l, i) => ({
-          url: l.url!.slice(0, 4096),
-          title: String(l.title ?? l.url).slice(0, 1000),
-          note: String(l.note ?? "").slice(0, 4000),
-          tags: Array.isArray(l.tags) ? l.tags.map(String).slice(0, 30) : [],
-          description: String(l.description ?? "").slice(0, 2000),
-          group_id: idMap.get(l.group_id ?? l.group ?? "") ?? null,
-          position: Date.now() / 1000 + i / 10000,
-        }));
-      let added = 0;
-      for (let i = 0; i < rows.length; i += 500) {
-        const { data: inserted, error } = await supabase
-          .from("links")
-          .upsert(rows.slice(i, i + 500), {
-            onConflict: "user_id,url",
-            ignoreDuplicates: true,
-          })
-          .select("id");
-        if (error) throw error;
-        added += inserted?.length ?? 0;
-      }
-      setMessage({ text: `匯入完成：新增 ${added} 個連結（重複的已略過）。` });
+      const s = store();
+      const plan = planCapture(await s.read(), {
+        inbox: "收件匣",
+        tabs: data.links.map((l) => {
+          const room = rooms.get(l.group_id ?? l.group ?? "");
+          return { ...l, group: room?.name ?? "", color: room?.color };
+        }),
+      });
+      await s.write(plan.ops);
+      setMessage({
+        text: `匯入完成：新增 ${plan.added} 個連結，重複略過 ${plan.dup} 個。`,
+      });
     } catch {
       setMessage({ text: "匯入失敗：檔案格式不正確。", error: true });
     }
     setBusy(false);
   }
 
+  async function logout() {
+    await signOut(firebase()!.auth);
+    router.push("/");
+  }
+
   async function deleteAccount() {
     if (!confirm("刪除帳號會永久刪除所有展區與連結，無法復原。確定嗎？"))
       return;
     if (prompt("請輸入「刪除」確認") !== "刪除") return;
-    const supabase = await loadBrowserSupabase();
-    const { error } = (await supabase?.rpc("delete_own_account")) ?? {};
-    if (error)
-      return setMessage({ text: "刪除失敗，請稍後再試。", error: true });
-    await supabase?.auth.signOut();
-    router.push("/");
-    router.refresh();
+    try {
+      const s = store();
+      const { groups, links } = await s.read();
+      await s.write([
+        ...links.map((l): Op => ({ type: "delete", col: "links", id: l.id })),
+        ...groups.map((g): Op => ({ type: "delete", col: "groups", id: g.id })),
+      ]);
+      await deleteUser(user);
+      router.push("/");
+    } catch (err) {
+      const recent =
+        err instanceof FirebaseError &&
+        err.code === "auth/requires-recent-login";
+      setMessage({
+        text: recent
+          ? "為了安全，請先登出再重新登入，然後再刪除一次帳號。"
+          : "刪除失敗，請稍後再試。",
+        error: true,
+      });
+    }
   }
 
   return (
@@ -198,37 +154,12 @@ export function AccountTools({
             <code>chrome://extensions</code>），打開右上角「開發人員模式」。
           </li>
           <li>按「載入未封裝項目」，選擇解壓縮後的資料夾。</li>
-          <li>點擴充功能圖示，貼上下面的「網站網址」與「收藏金鑰」。</li>
+          <li>
+            點擴充功能圖示，第一次使用時貼上網站網址：
+            <span className="token">{site}</span>
+          </li>
         </ol>
-        <p>
-          網站網址：<span className="token">{site}</span>
-        </p>
-        <div className="row-actions">
-          <button className="btn primary" onClick={newToken}>
-            {hasToken || token ? "重新產生收藏金鑰" : "產生收藏金鑰"}
-          </button>
-        </div>
-        {token ? (
-          <>
-            <p>這是你的收藏金鑰，只會顯示這一次，請現在複製到擴充功能：</p>
-            <div className="token">{token}</div>
-            <div className="row-actions">
-              <button
-                className="btn"
-                onClick={() => navigator.clipboard.writeText(token)}
-              >
-                複製金鑰
-              </button>
-            </div>
-          </>
-        ) : (
-          hasToken && (
-            <p>
-              目前的金鑰建立於 {date(tokenCreated)}，最後使用 {date(tokenUsed)}
-              。
-            </p>
-          )
-        )}
+        <p>之後按「收藏所有分頁」，分頁會送到這個網站，存進你登入的帳號。</p>
       </section>
 
       <section className="panel glass">
@@ -261,9 +192,9 @@ export function AccountTools({
       <section className="panel glass">
         <h2>登出與刪除</h2>
         <div className="row-actions">
-          <form action="/auth/signout" method="post">
-            <button className="btn">登出</button>
-          </form>
+          <button className="btn" onClick={logout}>
+            登出
+          </button>
           <button className="btn danger" onClick={deleteAccount}>
             刪除帳號與所有資料
           </button>
