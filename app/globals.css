@@ -2252,3 +2252,30 @@ kbd {
     padding: 16px;
   }
 }
+.import-dialog {
+  overflow-y: auto;
+}
+@media (max-width: 760px) {
+  .guide-tabs {
+    flex-wrap: nowrap;
+    gap: 0;
+  }
+  .guide-tabs button {
+    padding: 8px 9px 9px;
+    font-size: 12px;
+    letter-spacing: 0.02em;
+    white-space: nowrap;
+  }
+  .guide.compact .g-stage {
+    width: 82%;
+    justify-self: center;
+  }
+  .guide.compact .guide-steps button {
+    padding: 7px 10px;
+  }
+}
+@media (max-width: 760px) {
+  .import-box {
+    min-height: 96px;
+  }
+}
