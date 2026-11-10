@@ -130,11 +130,16 @@ function AccountTools({ user }: { user: User }) {
         </p>
       )}
 
-      <section className="panel glass">
-        <h2>瀏覽器擴充功能</h2>
+      <details className="panel glass optional">
+        <summary>
+          <h2>進階：瀏覽器擴充功能（選用）</h2>
+        </summary>
         <p>
-          支援 Brave、Chrome、Edge 等 Chromium
-          瀏覽器。一鍵收藏所有分頁，分頁群組自動變成展區。
+          一般使用不需要安裝。在典藏頁按「匯入分頁」，照著三個步驟複製、貼上就好。
+        </p>
+        <p>
+          擴充功能適合想要「一鍵收藏＋自動關閉分頁」、並保留分頁群組名稱與顏色的人。支援
+          Brave、Chrome、Edge。
         </p>
         <ol
           style={{
@@ -161,7 +166,7 @@ function AccountTools({ user }: { user: User }) {
           </li>
         </ol>
         <p>之後按「收藏所有分頁」，分頁會送到這個網站，存進你登入的帳號。</p>
-      </section>
+      </details>
 
       <section className="panel glass">
         <h2>匯出與匯入</h2>

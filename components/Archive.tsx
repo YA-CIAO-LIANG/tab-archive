@@ -2,7 +2,10 @@
 
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { ImportDialog, type Pasted } from "@/components/ImportDialog";
 import { Icon } from "@/components/Icons";
+import { planCapture, type IncomingTab } from "@/lib/capture";
+import { parseLinks } from "@/lib/import-text";
 import { firebase } from "@/lib/firebase";
 import {
   firestoreStore,
@@ -152,6 +155,7 @@ export function Archive({
     null,
   );
   const [still, setStill] = useState(false);
+  const [importing, setImporting] = useState<Pasted | null | false>(false);
   const [dropRoom, setDropRoom] = useState<string | null>(null);
   const undoStack = useRef<Undo[]>([]);
   const dragIds = useRef<string[]>([]);
@@ -502,6 +506,29 @@ export function Archive({
     );
   }
 
+  async function importTabs(tabs: IncomingTab[], room: string) {
+    const plan = planCapture({ groups, links }, { inbox: room, tabs });
+    const newGroups: Group[] = [];
+    const newLinks: Exhibit[] = [];
+    for (const op of plan.ops) {
+      if (op.type !== "set") continue;
+      if (op.col === "groups") newGroups.push(op.doc);
+      else newLinks.push(op.doc);
+    }
+    try {
+      await write(plan.ops);
+    } catch {
+      return say("匯入失敗，請再試一次。");
+    }
+    setGroups((gs) => [...newGroups, ...gs]);
+    setLinks((ls) => [...ls, ...newLinks]);
+    say(
+      `已匯入 ${plan.added} 個連結` +
+        (plan.dup ? `，重複略過 ${plan.dup} 個` : "") +
+        (demo ? "（展示模式不會儲存）" : "，正在抓取網頁介紹…"),
+    );
+  }
+
   function openAll(urls: string[]) {
     if (
       urls.length > 10 &&
@@ -522,13 +549,31 @@ export function Archive({
         e.preventDefault();
         searchRef.current?.focus();
       }
-      if ((e.metaKey || e.ctrlKey) && e.key === "z" && !typing) {
+      if ((e.metaKey || e.ctrlKey) && e.key === "z" && !typing && !importing) {
         e.preventDefault();
         undo();
       }
     };
+    // Pasting links anywhere on the page (outside a field) opens the
+    // import dialog with them.
+    const onPaste = (e: ClipboardEvent) => {
+      const target = e.target as HTMLElement;
+      if (importing !== false) return;
+      const text = e.clipboardData?.getData("text/plain") ?? "";
+      const html = e.clipboardData?.getData("text/html") ?? "";
+      const found = parseLinks(text, html).length;
+      // In a field, only a batch of links (the add-link box takes one).
+      const field = target.matches?.("input, textarea");
+      if (!found || (field && found < 2)) return;
+      e.preventDefault();
+      setImporting({ text, html });
+    };
     document.addEventListener("keydown", onKey);
-    return () => document.removeEventListener("keydown", onKey);
+    document.addEventListener("paste", onPaste);
+    return () => {
+      document.removeEventListener("keydown", onKey);
+      document.removeEventListener("paste", onPaste);
+    };
   });
 
   const toggle = (id: string, on: boolean) =>
@@ -867,6 +912,13 @@ export function Archive({
             </button>
             <span className="sep" />
             <button
+              className="text-btn import-btn"
+              onClick={() => setImporting(null)}
+            >
+              <Icon name="capture" />
+              匯入分頁
+            </button>
+            <button
               className="text-btn"
               onClick={async () => {
                 const name = prompt("新展區名稱");
@@ -924,12 +976,14 @@ export function Archive({
         ) : !links.length ? (
           <div className="empty glass">
             <h2>典藏尚空</h2>
+            <p>把瀏覽器開著的分頁一次搬進來，不用安裝任何東西。</p>
             <p>
-              安裝瀏覽器擴充功能，一鍵收藏所有分頁；或在上方貼上網址。
-              <br />
-              <Link className="text-btn" href="/account">
-                取得擴充功能與收藏金鑰 →
-              </Link>
+              <button
+                className="btn primary large"
+                onClick={() => setImporting(null)}
+              >
+                匯入所有分頁
+              </button>
             </p>
           </div>
         ) : !rooms.length ? (
@@ -1110,6 +1164,13 @@ export function Archive({
         </div>
       )}
 
+      {importing !== false && (
+        <ImportDialog
+          initial={importing}
+          onClose={() => setImporting(false)}
+          onImport={importTabs}
+        />
+      )}
       {toast && (
         <div className="toast" role="status">
           <span>{toast.text}</span>
